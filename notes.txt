@@ -1,0 +1,4 @@
+Don't forgets:
+- interactive value editor
+- "drag to pan and scroll to zoom"
+- big table
