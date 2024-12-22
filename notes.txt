@@ -4,7 +4,10 @@ Don't forgets:
 - big table
 - note that it's a histogram!
 - smooth transitions?
-- pan accom gaussian, but always have sensible range (& wide enough slider)
+- wide enough slider
 - give gaussian hard outline and no/v-opaque bars
 - second distribution? a real one? which?
 - note x-axis is log2, possibly do both axes same way?
+- max zoom level?
+- e7m2fn bug
+- toggling visibility can break correct ordering

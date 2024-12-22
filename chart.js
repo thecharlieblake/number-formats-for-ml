@@ -32,15 +32,15 @@ function lightness(color, factor) {
 // Initial data
 const initialNumSamples = 1024;
 const initialFormats = [
-  { e: 11, m: 52, fn: false },
-  { e: 8, m: 23, fn: false },
-  { e: 8, m: 10, fn: false },
-  { e: 8, m: 7, fn: false },
-  { e: 5, m: 10, fn: false },
-  { e: 5, m: 2, fn: false },
-  { e: 4, m: 3, fn: true },
+  { e: 8, m: 23, fn: false, name: "FP32" },
+  { e: 8, m: 10, fn: false, name: "TF32" },
+  { e: 8, m: 7, fn: false, name: "BF16" },
+  { e: 5, m: 10, fn: false, name: "FP16" },
+  { e: 5, m: 2, fn: false, name: "FP8 E5" },
+  { e: 4, m: 3, fn: true, name: "FP8 E4" },
 ];
 gaussianData = null;
+formatData = null;
 
 // Chart elements
 const svg = d3
@@ -186,14 +186,16 @@ svg.call(zoom).style("cursor", "grab");
 
 // --- Legend ---
 
-const checkboxContainer = d3
+const legendContainer = d3
   .select("body")
   .append("div")
+  .attr("class", "legend-container");
+const checkboxContainer = legendContainer
+  .append("div")
   .attr("class", "checkbox-container");
-checkboxContainer
-  .append("label")
-  .attr("for", "exampleCheckbox")
-  .text("Click me!");
+const customFormatContainer = legendContainer
+  .append("div")
+  .attr("class", "custom-format-container");
 
 //  --- Data processing ---
 
@@ -249,12 +251,116 @@ function genFullData(counts, format, bins) {
   return { hData: hData, vData: vData };
 }
 
-function plot(f) {
-  fmtName = `E${f.fmt.e}M${f.fmt.m}`;
-  if (f.fmt.fn) {
-    fmtName = `${fmtName}fn`;
-  }
+function addFormatBox(f) {
+  const formatContainer = checkboxContainer
+    .append("label")
+    .attr("for", fmtName(f.fmt))
+    .style("display", "block");
+  const checkbox = formatContainer
+    .append("input")
+    .attr("type", "checkbox")
+    .attr("id", fmtName(f.fmt))
+    .style("visibility", "hidden")
+    .style("display", "block")
+    .style("height", 0)
+    .style("width", 0)
+    .style("position", "absolute")
+    .style("overflow", "hidden")
+    .property("checked", f.visible);
 
+  const lightColor = lightness(d3.hsl(f.color), lightnessFactor);
+
+  const replacementCheckbox = formatContainer
+    .append("span")
+    .style("height", "1em")
+    .style("width", "1em")
+    .style("border", `2px solid ${f.color}`)
+    .style("display", "inline-block")
+    .style("background", f.visible ? lightColor : "");
+
+  checkbox.on("change", function () {
+    if (this.checked) {
+      replacementCheckbox.style("background", lightColor);
+      f.visible = true;
+      formatData.push(f);
+      plot(f);
+    } else {
+      replacementCheckbox.style("background", "");
+      f.visible = false;
+      function removeFromList(list, conditionFn) {
+        const index = list.findIndex(conditionFn);
+        if (index !== -1) {
+          return list.splice(index, 1)[0]; // Remove and return the matching element
+        }
+        return undefined; // Return undefined if no match is found
+      }
+      unplot(
+        removeFromList(
+          formatData,
+          (fd) => JSON.stringify(fd.fmt) === JSON.stringify(f.fmt),
+        ),
+      );
+    }
+    adjustDomains({ resetZoom: true });
+  });
+
+  formatContainer
+    .append("span")
+    .text(
+      "name" in f.fmt ? `${f.fmt.name} (${fmtName(f.fmt)})` : fmtName(f.fmt),
+    );
+}
+
+function addExtraFormatBox(baseData) {
+  const customFormatButton = customFormatContainer
+    .append("button")
+    .text("add custom format");
+  const customFormatEntry = customFormatContainer.append("span");
+  customFormatEntry.append("span").text("e");
+  const customFormatE = customFormatEntry.append("input").style("width", "1em");
+  customFormatEntry.append("span").text("m");
+  const customFormatM = customFormatEntry.append("input").style("width", "1em");
+  customFormatEntry.append("span").text("fn");
+  const customFormatFn = customFormatEntry
+    .append("input")
+    .attr("type", "checkbox");
+
+  customFormatButton.on("click", function () {
+    const fmt = {
+      e: customFormatE.property("value"),
+      m: customFormatM.property("value"),
+      fn: customFormatFn.property("checked"),
+    };
+    const newFormatData = {
+      fmt: fmt,
+      data: genFullData(baseData.floatData[fmt.m], fmt, bins),
+      color: colors[formatData.length],
+      visible: true,
+    };
+    if (
+      formatData.some(
+        (f) => f.fmt.e === fmt.e && f.fmt.m === fmt.m && f.fmt.fn === fmt.fn,
+      )
+    ) {
+      console.log("Format already in table:", fmtName(fmt));
+      return;
+    }
+    formatData.push(newFormatData);
+    plot(newFormatData);
+    addFormatBox(newFormatData);
+    adjustDomains();
+  });
+}
+
+function fmtName(fmt) {
+  nm = `e${fmt.e}m${fmt.m}`;
+  if (fmt.fn) {
+    nm = `${nm}fn`;
+  }
+  return nm;
+}
+
+function plot(f) {
   function formatComparator() {
     for (i = 0; i < this.children.length; i += 1) {
       child = this.children[i];
@@ -278,7 +384,7 @@ function plot(f) {
 
   const formatHistGroup = histGroup
     .insert("g", formatComparator)
-    .attr("class", `${fmtName}`);
+    .attr("class", fmtName(f.fmt));
 
   formatHistGroup
     .selectAll(`.fp-light-bar`)
@@ -323,25 +429,22 @@ function plot(f) {
 }
 
 function unplot(f) {
-  fmtName = `E${f.fmt.e}M${f.fmt.m}`;
-  if (f.fmt.fn) {
-    fmtName = `${fmtName}fn`;
-  }
-  histGroup.selectAll(`.${fmtName}`).remove();
+  histGroup.selectAll(`.${fmtName(f.fmt)}`).remove();
 }
 
-function adjustDomains(
-  _formatData,
-  { adjustStdSlider = true, resetZoom = false } = {},
-) {
+function adjustDomains({ adjustStdSlider = true, resetZoom = false } = {}) {
   if (resetZoom) {
     svg.call(zoom.transform, d3.zoomIdentity);
     currentTransform = d3.zoomIdentity;
   }
 
-  formatData = _formatData.filter((fd) => fd.visible);
-  xExtents = formatData.map((fd) => d3.extent(fd.data.hData, (d) => d.x));
-  yExtents = formatData.map((fd) => d3.extent(fd.data.hData, (d) => d.y));
+  visibleFormatData = formatData.filter((fd) => fd.visible);
+  xExtents = visibleFormatData.map((fd) =>
+    d3.extent(fd.data.hData, (d) => d.x),
+  );
+  yExtents = visibleFormatData.map((fd) =>
+    d3.extent(fd.data.hData, (d) => d.y),
+  );
 
   gaussXDomain = d3.extent(
     gaussianData.filter((d) => d.y >= 0.5).map((d) => d.x),
@@ -401,34 +504,6 @@ function adjustDomains(
   }
 }
 
-function addCheckbox(f) {
-  checkboxContainer
-    .append("input")
-    .attr("type", "checkbox")
-    .property("checked", f.visible)
-    .on("change", function () {
-      if (this.checked) {
-        formatData.push(f);
-        plot(f);
-      } else {
-        function removeFromList(list, conditionFn) {
-          const index = list.findIndex(conditionFn);
-          if (index !== -1) {
-            return list.splice(index, 1)[0]; // Remove and return the matching element
-          }
-          return undefined; // Return undefined if no match is found
-        }
-        unplot(
-          removeFromList(
-            formatData,
-            (fd) => JSON.stringify(fd.fmt) === JSON.stringify(f.fmt),
-          ),
-        );
-      }
-      adjustDomains(formatData, { resetZoom: true });
-    });
-}
-
 // --- Chart generation ---
 
 function generateChart(baseData) {
@@ -471,7 +546,7 @@ function generateChart(baseData) {
     gaussianData.forEach((d, i) => {
       d.x = gaussianDataOriginal[i].x + offset;
     });
-    adjustDomains(formatData, { adjustStdSlider: false });
+    adjustDomains({ adjustStdSlider: false });
   });
 
   // Number of samples
@@ -483,46 +558,13 @@ function generateChart(baseData) {
       d.y =
         (gaussianDataOriginal[i].y * Math.pow(2, exponent)) / initialNumSamples;
     });
-    adjustDomains(formatData);
+    adjustDomains();
   });
 
   formatData.filter((fd) => fd.visible).forEach(plot);
-  adjustDomains(formatData);
-  formatData.forEach(addCheckbox);
-
-  checkboxContainer
-    .append("input")
-    .attr("type", "checkbox")
-    .attr("id", "exampleCheckbox")
-    .property("checked", false)
-    .on("change", function () {
-      const fmt = { e: 6, m: 6, fn: true };
-      if (this.checked) {
-        const newFormatData = {
-          fmt: fmt,
-          data: genFullData(baseData.floatData[fmt.m], fmt, bins),
-          color: colors[formatData.length],
-          visible: true,
-        };
-        formatData.push(newFormatData);
-        plot(newFormatData);
-      } else {
-        function removeFromList(list, conditionFn) {
-          const index = list.findIndex(conditionFn);
-          if (index !== -1) {
-            return list.splice(index, 1)[0]; // Remove and return the matching element
-          }
-          return undefined; // Return undefined if no match is found
-        }
-        unplot(
-          removeFromList(
-            formatData,
-            (fd) => JSON.stringify(fd.fmt) === JSON.stringify(fmt),
-          ),
-        );
-      }
-      adjustDomains(formatData);
-    });
+  adjustDomains();
+  formatData.forEach(addFormatBox);
+  addExtraFormatBox(baseData);
 }
 
 // --- Load ---
