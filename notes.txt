@@ -2,3 +2,8 @@ Don't forgets:
 - interactive value editor
 - "drag to pan and scroll to zoom"
 - big table
+- note that it's a histogram!
+- smooth transitions?
+- pan accom gaussian, but always have sensible range (& wide enough slider)
+- give gaussian hard outline and no/v-opaque bars
+- second distribution? a real one? which?
