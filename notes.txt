@@ -7,3 +7,4 @@ Don't forgets:
 - pan accom gaussian, but always have sensible range (& wide enough slider)
 - give gaussian hard outline and no/v-opaque bars
 - second distribution? a real one? which?
+- note x-axis is log2, possibly do both axes same way?

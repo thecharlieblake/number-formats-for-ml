@@ -32,12 +32,15 @@ function lightness(color, factor) {
 // Initial data
 const initialNumSamples = 1024;
 const initialFormats = [
-  // { e: 8, m: 7, fn: false },
-  { e: 6, m: 9, fn: false },
+  { e: 11, m: 52, fn: false },
+  { e: 8, m: 23, fn: false },
+  { e: 8, m: 10, fn: false },
+  { e: 8, m: 7, fn: false },
   { e: 5, m: 10, fn: false },
+  { e: 5, m: 2, fn: false },
   { e: 4, m: 3, fn: true },
-  { e: 2, m: 5, fn: true },
 ];
+gaussianData = null;
 
 // Chart elements
 const svg = d3
@@ -72,7 +75,6 @@ svg
   .append("text")
   .attr("x", 29)
   .attr("y", 15)
-  // .attr("transform", "rotate(-90)")
   .attr("text-anchor", "right")
   .text("bin count");
 
@@ -146,7 +148,6 @@ const zoom = d3
   .scaleExtent([0.25, 10]) // Limit zoom levels
   .on("zoom", function (event) {
     currentTransform = event.transform;
-    console.log("currentTransform", currentTransform);
     const newXScale = event.transform.rescaleX(xScale);
     xAxisGroup.call(xAxis.scale(newXScale));
 
@@ -193,11 +194,6 @@ checkboxContainer
   .append("label")
   .attr("for", "exampleCheckbox")
   .text("Click me!");
-const checkbox = checkboxContainer
-  .append("input")
-  .attr("type", "checkbox")
-  .attr("id", "exampleCheckbox")
-  .property("checked", false);
 
 //  --- Data processing ---
 
@@ -334,45 +330,103 @@ function unplot(f) {
   histGroup.selectAll(`.${fmtName}`).remove();
 }
 
-function adjustDomains(formatData) {
+function adjustDomains(
+  _formatData,
+  { adjustStdSlider = true, resetZoom = false } = {},
+) {
+  if (resetZoom) {
+    svg.call(zoom.transform, d3.zoomIdentity);
+    currentTransform = d3.zoomIdentity;
+  }
+
+  formatData = _formatData.filter((fd) => fd.visible);
   xExtents = formatData.map((fd) => d3.extent(fd.data.hData, (d) => d.x));
   yExtents = formatData.map((fd) => d3.extent(fd.data.hData, (d) => d.y));
+
+  gaussXDomain = d3.extent(
+    gaussianData.filter((d) => d.y >= 0.5).map((d) => d.x),
+  );
+  if (gaussXDomain[0] === undefined) {
+    gaussXDomain[0] = 0;
+  }
+  if (gaussXDomain[1] === undefined) {
+    gaussXDomain[1] = 0;
+  }
   xDomain = [
-    Math.min(...xExtents.map((e) => e[0] - 0.5)),
-    Math.max(...xExtents.map((e) => e[1] + 0.5)),
+    Math.min(gaussXDomain[0], ...xExtents.map((e) => e[0] - 0.5)),
+    Math.max(gaussXDomain[1], ...xExtents.map((e) => e[1] + 0.5)),
   ];
   xScale.domain(xDomain);
-  xAxisGroup.call(xAxis.scale(xScale));
-  yScale.domain([1 / 2, Math.max(...yExtents.map((e) => e[1] * vPad))]);
+  const newXScale = currentTransform.rescaleX(xScale);
+  xAxisGroup.call(xAxis.scale(newXScale));
+
+  yScale.domain([
+    1 / 2,
+    Math.max(
+      d3.max(gaussianData, (d) => d.y) * vPad,
+      ...yExtents.map((e) => e[1] * vPad),
+    ),
+  ]);
   yAxisGroup.call(yAxis.scale(yScale));
-  svg.call(zoom.transform, d3.zoomIdentity);
 
   // Adjust existing plots to match domains
   plotGroup
     .selectAll(".gaussian-bar")
-    .attr("x", (d) => xScale(d.x))
+    .attr("x", (d) => newXScale(d.x))
     .attr("y", (d) => yScale(d.y))
-    .attr("width", stepSize * (xScale(1) - xScale(0)));
+    .attr("width", stepSize * (newXScale(1) - newXScale(0)))
+    .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)));
   histGroup
     .selectAll(`.fp-light-bar`)
-    .attr("x", (d) => xScale(d.x))
+    .attr("x", (d) => newXScale(d.x))
     .attr("y", (d) => yScale(d.y))
-    .attr("width", stepSize * (xScale(1) - xScale(0)));
+    .attr("width", stepSize * (newXScale(1) - newXScale(0)))
+    .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)));
   histGroup
     .selectAll(`.fp-horizontal-line`)
-    .attr("x1", (d) => xScale(d.x))
-    .attr("x2", (d) => xScale(d.x + stepSize))
+    .attr("x1", (d) => newXScale(d.x))
+    .attr("x2", (d) => newXScale(d.x + stepSize))
     .attr("y1", (d) => yScale(d.y))
     .attr("y2", (d) => yScale(d.y));
   histGroup
     .selectAll(`.fp-vertical-line`)
-    .attr("x1", (d) => xScale(d.x))
-    .attr("x2", (d) => xScale(d.x))
+    .attr("x1", (d) => newXScale(d.x))
+    .attr("x2", (d) => newXScale(d.x))
     .attr("y1", (d) => yScale(d.y1))
     .attr("y2", (d) => yScale(d.y2));
-  stdSliderContainerInput
-    .attr("min", Math.round(xDomain[0] - 3))
-    .attr("max", Math.round(xDomain[1] + 10));
+  if (adjustStdSlider) {
+    stdSliderContainerInput
+      .attr("min", Math.round(xDomain[0] - 3))
+      .attr("max", Math.round(xDomain[1] + 10));
+  }
+}
+
+function addCheckbox(f) {
+  checkboxContainer
+    .append("input")
+    .attr("type", "checkbox")
+    .property("checked", f.visible)
+    .on("change", function () {
+      if (this.checked) {
+        formatData.push(f);
+        plot(f);
+      } else {
+        function removeFromList(list, conditionFn) {
+          const index = list.findIndex(conditionFn);
+          if (index !== -1) {
+            return list.splice(index, 1)[0]; // Remove and return the matching element
+          }
+          return undefined; // Return undefined if no match is found
+        }
+        unplot(
+          removeFromList(
+            formatData,
+            (fd) => JSON.stringify(fd.fmt) === JSON.stringify(f.fmt),
+          ),
+        );
+      }
+      adjustDomains(formatData, { resetZoom: true });
+    });
 }
 
 // --- Chart generation ---
@@ -384,15 +438,7 @@ function generateChart(baseData) {
     x: d.x,
     y: (d.y * initialNumSamples) / 2, // /2 as we only show +ves
   }));
-  yScale.domain([1 / 2, d3.max(gaussianData, (d) => d.y) * vPad]);
 
-  const posGaussianData = gaussianData.filter((item) => item.y > 0.5);
-  const gaussianDomain = [
-    posGaussianData.at(0).x - 0.5,
-    posGaussianData.at(-1).x + 0.5,
-  ];
-  xScale.domain(gaussianDomain);
-  xAxisGroup.call(xAxis);
   histGaussianGroup
     .selectAll(".gaussian-bar")
     .data(gaussianData)
@@ -411,6 +457,7 @@ function generateChart(baseData) {
     fmt: fmt,
     data: genFullData(baseData.floatData[fmt.m], fmt, bins),
     color: colors[i],
+    visible: fmt.e + fmt.m < 16,
   }));
 
   // --- Animation logic ---
@@ -424,9 +471,7 @@ function generateChart(baseData) {
     gaussianData.forEach((d, i) => {
       d.x = gaussianDataOriginal[i].x + offset;
     });
-    const newXScale = currentTransform.rescaleX(xScale);
-    xAxisGroup.call(xAxis.scale(newXScale));
-    plotGroup.selectAll(".gaussian-bar").attr("x", (d) => newXScale(d.x));
+    adjustDomains(formatData, { adjustStdSlider: false });
   });
 
   // Number of samples
@@ -438,52 +483,46 @@ function generateChart(baseData) {
       d.y =
         (gaussianDataOriginal[i].y * Math.pow(2, exponent)) / initialNumSamples;
     });
-    yScale.domain([
-      1 / 2,
-      Math.max(
-        d3.max(gaussianData, (d) => d.y),
-        d3.max(
-          formatData.sort((a, b) => b.fmt.m - a.fmt.m)[0].data.hData,
-          (d) => d.y,
-        ),
-      ) * vPad,
-    ]);
-    yAxisGroup.call(yAxis.scale(yScale));
-
-    plotGroup
-      .selectAll(".gaussian-bar")
-      .attr("y", (d) => yScale(d.y))
-      .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)));
-    plotGroup.selectAll(".fp-light-bar").attr("y", (d) => yScale(d.y));
-    plotGroup
-      .selectAll(".fp-horizontal-line")
-      .attr("y1", (d) => yScale(d.y))
-      .attr("y2", (d) => yScale(d.y));
-    plotGroup
-      .selectAll(".fp-vertical-line")
-      .attr("y1", (d) => yScale(d.y1))
-      .attr("y2", (d) => yScale(d.y2));
+    adjustDomains(formatData);
   });
 
-  formatData.forEach(plot);
+  formatData.filter((fd) => fd.visible).forEach(plot);
   adjustDomains(formatData);
+  formatData.forEach(addCheckbox);
 
-  checkbox.on("change", function () {
-    if (this.checked) {
-      const fmt = { e: 8, m: 7, fn: false };
-      const newFormatData = {
-        fmt: fmt,
-        data: genFullData(baseData.floatData[fmt.m], fmt, bins),
-        color: colors[formatData.length],
-      };
-      formatData.push(newFormatData);
-      plot(newFormatData);
+  checkboxContainer
+    .append("input")
+    .attr("type", "checkbox")
+    .attr("id", "exampleCheckbox")
+    .property("checked", false)
+    .on("change", function () {
+      const fmt = { e: 6, m: 6, fn: true };
+      if (this.checked) {
+        const newFormatData = {
+          fmt: fmt,
+          data: genFullData(baseData.floatData[fmt.m], fmt, bins),
+          color: colors[formatData.length],
+          visible: true,
+        };
+        formatData.push(newFormatData);
+        plot(newFormatData);
+      } else {
+        function removeFromList(list, conditionFn) {
+          const index = list.findIndex(conditionFn);
+          if (index !== -1) {
+            return list.splice(index, 1)[0]; // Remove and return the matching element
+          }
+          return undefined; // Return undefined if no match is found
+        }
+        unplot(
+          removeFromList(
+            formatData,
+            (fd) => JSON.stringify(fd.fmt) === JSON.stringify(fmt),
+          ),
+        );
+      }
       adjustDomains(formatData);
-    } else {
-      unplot(formatData.pop());
-      adjustDomains(formatData);
-    }
-  });
+    });
 }
 
 // --- Load ---
