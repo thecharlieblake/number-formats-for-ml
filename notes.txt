@@ -11,3 +11,5 @@ Don't forgets:
 - max zoom level?
 - e7m2fn bug
 - toggling visibility can break correct ordering
+- sanitize inputs
+- x button to remove formats

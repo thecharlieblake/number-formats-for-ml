@@ -364,12 +364,13 @@ function plot(f) {
   function formatComparator() {
     for (i = 0; i < this.children.length; i += 1) {
       child = this.children[i];
-      const regex = /^E(\d+)M(\d+)(fn)?$/;
+      const regex = /^e(\d+)m(\d+)(fn)?$/;
       result = child.className.baseVal.match(regex);
       if (result) {
         const e = parseInt(result[1], 10);
         const m = parseInt(result[2], 10);
         const fn = Boolean(result[3]);
+        console.log(e, m, fn, f.fmt);
         if (
           e < f.fmt.e ||
           (e == f.fmt.e && m < f.fmt.m) ||
