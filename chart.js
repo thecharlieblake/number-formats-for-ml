@@ -148,29 +148,7 @@ const zoom = d3
   .scaleExtent([0.25, 10]) // Limit zoom levels
   .on("zoom", function (event) {
     currentTransform = event.transform;
-    const newXScale = event.transform.rescaleX(xScale);
-    xAxisGroup.call(xAxis.scale(newXScale));
-
-    // Update positions and widths based on the new scale
-    plotGroup
-      .selectAll(".gaussian-bar")
-      .attr("x", (d) => newXScale(d.x))
-      .attr("width", stepSize * (newXScale(1) - newXScale(0)));
-
-    plotGroup
-      .selectAll(".fp-light-bar")
-      .attr("x", (d) => newXScale(d.x))
-      .attr("width", stepSize * (newXScale(1) - newXScale(0)));
-
-    plotGroup
-      .selectAll(".fp-horizontal-line")
-      .attr("x1", (d) => newXScale(d.x))
-      .attr("x2", (d) => newXScale(d.x + stepSize));
-
-    plotGroup
-      .selectAll(".fp-vertical-line")
-      .attr("x1", (d) => newXScale(d.x))
-      .attr("x2", (d) => newXScale(d.x));
+    adjustDomains();
   })
   .on("start", ({ sourceEvent }) => {
     if (sourceEvent?.type.match(/^(mousedown|touchstart)$/)) {
@@ -342,7 +320,6 @@ function addExtraFormatBox(baseData) {
         (f) => f.fmt.e === fmt.e && f.fmt.m === fmt.m && f.fmt.fn === fmt.fn,
       )
     ) {
-      console.log("Format already in table:", fmtName(fmt));
       return;
     }
     formatData.push(newFormatData);
@@ -370,7 +347,6 @@ function plot(f) {
         const e = parseInt(result[1], 10);
         const m = parseInt(result[2], 10);
         const fn = Boolean(result[3]);
-        console.log(e, m, fn, f.fmt);
         if (
           e < f.fmt.e ||
           (e == f.fmt.e && m < f.fmt.m) ||
@@ -393,10 +369,6 @@ function plot(f) {
     .enter()
     .append("rect")
     .attr("class", `fp-light-bar`)
-    .attr("x", (d) => xScale(d.x))
-    .attr("y", (d) => yScale(d.y))
-    .attr("width", stepSize * (xScale(1) - xScale(0)))
-    .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)))
     .attr("fill", lightness(d3.hsl(f.color), lightnessFactor))
     .attr("opacity", opacity);
 
@@ -406,10 +378,6 @@ function plot(f) {
     .enter()
     .append("line")
     .attr("class", `fp-horizontal-line`)
-    .attr("x1", (d) => xScale(d.x))
-    .attr("x2", (d) => xScale(d.x + stepSize))
-    .attr("y1", (d) => yScale(d.y))
-    .attr("y2", (d) => yScale(d.y))
     .attr("stroke", d3.hsl(f.color))
     .attr("stroke-linecap", "round")
     .attr("stroke-width", lineWidth);
@@ -420,10 +388,6 @@ function plot(f) {
     .enter()
     .append("line")
     .attr("class", `fp-vertical-line`)
-    .attr("x1", (d) => xScale(d.x))
-    .attr("x2", (d) => xScale(d.x))
-    .attr("y1", (d) => yScale(d.y1))
-    .attr("y2", (d) => yScale(d.y2))
     .attr("stroke", d3.hsl(f.color))
     .attr("stroke-linecap", "round")
     .attr("stroke-width", lineWidth);
@@ -521,10 +485,6 @@ function generateChart(baseData) {
     .enter()
     .append("rect")
     .attr("class", "gaussian-bar")
-    .attr("x", (d) => xScale(d.x))
-    .attr("y", (d) => yScale(d.y))
-    .attr("width", stepSize * (xScale(1) - xScale(0)))
-    .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)))
     .attr("opacity", 0.5)
     .attr("fill", "steelblue");
 
@@ -543,7 +503,6 @@ function generateChart(baseData) {
   stdSliderContainerInput.on("input", function () {
     const offset = +this.value;
     stdSliderValueDisplay.html(`2<sup>${offset}</sup>`);
-
     gaussianData.forEach((d, i) => {
       d.x = gaussianDataOriginal[i].x + offset;
     });
@@ -554,7 +513,6 @@ function generateChart(baseData) {
   samplesSliderContainerInput.on("input", function () {
     const exponent = +this.value;
     sliderValueDisplay.html(`2<sup>${exponent}</sup>`);
-
     gaussianData.forEach((d, i) => {
       d.y =
         (gaussianDataOriginal[i].y * Math.pow(2, exponent)) / initialNumSamples;
