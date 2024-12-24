@@ -9,7 +9,4 @@ Don't forgets:
 - second distribution? a real one? which?
 - note x-axis is log2, possibly do both axes same way?
 - max zoom level?
-- e7m2fn bug
-- toggling visibility can break correct ordering
-- sanitize inputs
-- x button to remove formats
+- lay slider out such that power going to double digits doesn't shift it

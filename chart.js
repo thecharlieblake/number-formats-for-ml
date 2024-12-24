@@ -148,7 +148,7 @@ const zoom = d3
   .scaleExtent([0.25, 10]) // Limit zoom levels
   .on("zoom", function (event) {
     currentTransform = event.transform;
-    adjustDomains();
+    adjustDomains({ adjustY: false });
   })
   .on("start", ({ sourceEvent }) => {
     if (sourceEvent?.type.match(/^(mousedown|touchstart)$/)) {
@@ -187,9 +187,7 @@ function genFullData(counts, format, bins) {
     (_, i) => counts[counts.length - bins + (i % bins)],
   );
 
-  const newCounts = countsBeforeBins
-    .concat(countsAfterBins)
-    .map((v) => Math.max(v, 0.5));
+  newCounts = countsBeforeBins.concat(countsAfterBins);
 
   // Step 2: Modify last non-zero bin if `fn` is true
   if (fn) {
@@ -200,6 +198,8 @@ function genFullData(counts, format, bins) {
       }
     }
   }
+
+  newCounts = newCounts.map((v) => Math.max(v, 0.5));
 
   // Step 3: Compute min_norm_exp and min_sub_exp
   const minSubExp = 2 - 2 ** (e - 1) - m;
@@ -229,7 +229,7 @@ function genFullData(counts, format, bins) {
   return { hData: hData, vData: vData };
 }
 
-function addFormatBox(f) {
+function addFormatBox(f, { xBox = true } = {}) {
   const formatContainer = checkboxContainer
     .append("label")
     .attr("for", fmtName(f.fmt))
@@ -265,13 +265,6 @@ function addFormatBox(f) {
     } else {
       replacementCheckbox.style("background", "");
       f.visible = false;
-      function removeFromList(list, conditionFn) {
-        const index = list.findIndex(conditionFn);
-        if (index !== -1) {
-          return list.splice(index, 1)[0]; // Remove and return the matching element
-        }
-        return undefined; // Return undefined if no match is found
-      }
       unplot(
         removeFromList(
           formatData,
@@ -287,6 +280,22 @@ function addFormatBox(f) {
     .text(
       "name" in f.fmt ? `${f.fmt.name} (${fmtName(f.fmt)})` : fmtName(f.fmt),
     );
+
+  if (xBox) {
+    formatContainer
+      .append("button")
+      .text("x")
+      .on("click", function () {
+        unplot(
+          removeFromList(
+            formatData,
+            (fd) => JSON.stringify(fd.fmt) === JSON.stringify(f.fmt),
+          ),
+        );
+        formatContainer.remove();
+        adjustDomains();
+      });
+  }
 }
 
 function addExtraFormatBox(baseData) {
@@ -304,11 +313,28 @@ function addExtraFormatBox(baseData) {
     .attr("type", "checkbox");
 
   customFormatButton.on("click", function () {
+    function safeParseInt(value) {
+      const parsed = parseInt(value, 10);
+      return isNaN(parsed) ? value : parsed;
+    }
     const fmt = {
-      e: customFormatE.property("value"),
-      m: customFormatM.property("value"),
+      e: safeParseInt(customFormatE.property("value")),
+      m: safeParseInt(customFormatM.property("value")),
       fn: customFormatFn.property("checked"),
     };
+    function intCheck(value, name, min, max) {
+      if (Number.isInteger(value) && value >= min && value <= max) {
+        return true;
+      } else {
+        alert(
+          `${name}='${value}' must be an integer in the range [${min}, ${max}]`,
+        );
+        return false;
+      }
+    }
+    if (!intCheck(fmt.e, "e", 0, 11) || !intCheck(fmt.m, "m", 0, 52)) {
+      return;
+    }
     const newFormatData = {
       fmt: fmt,
       data: genFullData(baseData.floatData[fmt.m], fmt, bins),
@@ -320,6 +346,7 @@ function addExtraFormatBox(baseData) {
         (f) => f.fmt.e === fmt.e && f.fmt.m === fmt.m && f.fmt.fn === fmt.fn,
       )
     ) {
+      alert(`Format: ${JSON.stringify(fmt)} is already present`);
       return;
     }
     formatData.push(newFormatData);
@@ -393,11 +420,24 @@ function plot(f) {
     .attr("stroke-width", lineWidth);
 }
 
+function removeFromList(list, conditionFn) {
+  const index = list.findIndex(conditionFn);
+  if (index !== -1) {
+    return list.splice(index, 1)[0]; // Remove and return the matching element
+  }
+  return undefined; // Return undefined if no match is found
+}
+
 function unplot(f) {
   histGroup.selectAll(`.${fmtName(f.fmt)}`).remove();
 }
 
-function adjustDomains({ adjustStdSlider = true, resetZoom = false } = {}) {
+function adjustDomains({
+  adjustStdSlider = true,
+  resetZoom = false,
+  adjustX = true,
+  adjustY = true,
+} = {}) {
   if (resetZoom) {
     svg.call(zoom.transform, d3.zoomIdentity);
     currentTransform = d3.zoomIdentity;
@@ -411,57 +451,69 @@ function adjustDomains({ adjustStdSlider = true, resetZoom = false } = {}) {
     d3.extent(fd.data.hData, (d) => d.y),
   );
 
-  gaussXDomain = d3.extent(
-    gaussianData.filter((d) => d.y >= 0.5).map((d) => d.x),
-  );
-  if (gaussXDomain[0] === undefined) {
-    gaussXDomain[0] = 0;
-  }
-  if (gaussXDomain[1] === undefined) {
-    gaussXDomain[1] = 0;
-  }
-  xDomain = [
-    Math.min(gaussXDomain[0], ...xExtents.map((e) => e[0] - 0.5)),
-    Math.max(gaussXDomain[1], ...xExtents.map((e) => e[1] + 0.5)),
-  ];
-  xScale.domain(xDomain);
-  const newXScale = currentTransform.rescaleX(xScale);
-  xAxisGroup.call(xAxis.scale(newXScale));
+  if (adjustX) {
+    gaussXDomain = d3.extent(
+      gaussianData.filter((d) => d.y >= 0.5).map((d) => d.x),
+    );
+    if (gaussXDomain[0] === undefined) {
+      gaussXDomain[0] = 0;
+    }
+    if (gaussXDomain[1] === undefined) {
+      gaussXDomain[1] = 0;
+    }
+    xDomain = [
+      Math.min(gaussXDomain[0], ...xExtents.map((e) => e[0] - 0.5)),
+      Math.max(gaussXDomain[1], ...xExtents.map((e) => e[1] + 0.5)),
+    ];
+    xScale.domain(xDomain);
+    const newXScale = currentTransform.rescaleX(xScale);
+    xAxisGroup.call(xAxis.scale(newXScale));
 
-  yScale.domain([
-    1 / 2,
-    Math.max(
-      d3.max(gaussianData, (d) => d.y) * vPad,
-      ...yExtents.map((e) => e[1] * vPad),
-    ),
-  ]);
-  yAxisGroup.call(yAxis.scale(yScale));
+    // Adjust existing plots to match domains
+    plotGroup
+      .selectAll(".gaussian-bar")
+      .attr("x", (d) => newXScale(d.x))
+      .attr("width", stepSize * (newXScale(1) - newXScale(0)));
+    histGroup
+      .selectAll(`.fp-light-bar`)
+      .attr("x", (d) => newXScale(d.x))
+      .attr("width", stepSize * (newXScale(1) - newXScale(0)));
+    histGroup
+      .selectAll(`.fp-horizontal-line`)
+      .attr("x1", (d) => newXScale(d.x))
+      .attr("x2", (d) => newXScale(d.x + stepSize));
+    histGroup
+      .selectAll(`.fp-vertical-line`)
+      .attr("x1", (d) => newXScale(d.x))
+      .attr("x2", (d) => newXScale(d.x));
+  }
 
-  // Adjust existing plots to match domains
-  plotGroup
-    .selectAll(".gaussian-bar")
-    .attr("x", (d) => newXScale(d.x))
-    .attr("y", (d) => yScale(d.y))
-    .attr("width", stepSize * (newXScale(1) - newXScale(0)))
-    .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)));
-  histGroup
-    .selectAll(`.fp-light-bar`)
-    .attr("x", (d) => newXScale(d.x))
-    .attr("y", (d) => yScale(d.y))
-    .attr("width", stepSize * (newXScale(1) - newXScale(0)))
-    .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)));
-  histGroup
-    .selectAll(`.fp-horizontal-line`)
-    .attr("x1", (d) => newXScale(d.x))
-    .attr("x2", (d) => newXScale(d.x + stepSize))
-    .attr("y1", (d) => yScale(d.y))
-    .attr("y2", (d) => yScale(d.y));
-  histGroup
-    .selectAll(`.fp-vertical-line`)
-    .attr("x1", (d) => newXScale(d.x))
-    .attr("x2", (d) => newXScale(d.x))
-    .attr("y1", (d) => yScale(d.y1))
-    .attr("y2", (d) => yScale(d.y2));
+  if (adjustY) {
+    yScale.domain([
+      1 / 2,
+      Math.max(
+        d3.max(gaussianData, (d) => d.y) * vPad,
+        ...yExtents.map((e) => e[1] * vPad),
+      ),
+    ]);
+    yAxisGroup.call(yAxis.scale(yScale));
+    plotGroup
+      .selectAll(".gaussian-bar")
+      .attr("y", (d) => yScale(d.y))
+      .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)));
+    histGroup
+      .selectAll(`.fp-light-bar`)
+      .attr("y", (d) => yScale(d.y))
+      .attr("height", (d) => Math.max(0, chartHeight - yScale(d.y)));
+    histGroup
+      .selectAll(`.fp-horizontal-line`)
+      .attr("y1", (d) => yScale(d.y))
+      .attr("y2", (d) => yScale(d.y));
+    histGroup
+      .selectAll(`.fp-vertical-line`)
+      .attr("y1", (d) => yScale(d.y1))
+      .attr("y2", (d) => yScale(d.y2));
+  }
   if (adjustStdSlider) {
     stdSliderContainerInput
       .attr("min", Math.round(xDomain[0] - 3))
@@ -506,7 +558,7 @@ function generateChart(baseData) {
     gaussianData.forEach((d, i) => {
       d.x = gaussianDataOriginal[i].x + offset;
     });
-    adjustDomains({ adjustStdSlider: false });
+    adjustDomains({ adjustStdSlider: false, adjustY: false });
   });
 
   // Number of samples
@@ -517,12 +569,12 @@ function generateChart(baseData) {
       d.y =
         (gaussianDataOriginal[i].y * Math.pow(2, exponent)) / initialNumSamples;
     });
-    adjustDomains();
+    adjustDomains({ adjustX: false });
   });
 
   formatData.filter((fd) => fd.visible).forEach(plot);
   adjustDomains();
-  formatData.forEach(addFormatBox);
+  formatData.forEach((fd) => addFormatBox(fd, { xBox: false }));
   addExtraFormatBox(baseData);
 }
 
